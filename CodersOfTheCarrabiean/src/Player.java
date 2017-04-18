@@ -1,4 +1,5 @@
 import java.util.*;
+
 import java.io.*;
 import java.math.*;
 
@@ -11,7 +12,7 @@ import java.math.*;
  * CLASS
  * *****************************/
 
-abstract class Positionable {
+class Positionable {
 	int x;
 	int y;
 
@@ -96,11 +97,7 @@ class Player {
 	static int nbVisitedSides = 0;
 	static boolean inCheckPhase = true;
 	static int checkPhaseStep = -1;
-
-	static int directionCheck = 0;
-	static final int L_TO_R = 1;
-	static final int R_TO_L = -1;
-
+	static Positionable checkPhaseSpots[];
 	
 	
 	//Global data 
@@ -169,7 +166,16 @@ class Player {
 		return CMD_WAIT;
 	}
 
-	
+
+	static void printAllMappedBarrels(){
+		System.err.println("Barrel trouvés :");
+		for (HashMap< Integer, Barrel> bloc : mappedBarrels) {
+			for (Map.Entry<Integer, Barrel> entry : bloc.entrySet()){
+				System.err.println("Barrel "+entry.getKey()+" "+ entry.getValue().x + " " + entry.getValue().y);
+			}
+			System.err.println("-----------------------");
+		}
+	}
 
 	public static void computeShipAction(int idShip, int round){
 		currShip = myShips.get(idShip);
@@ -179,42 +185,63 @@ class Player {
 	}
 	
 
-	
+	//********************************
 	//******************** CHECK PHASE
-	//On check d'abord toute la zone horizontalement
+	//********************************
+
+	static public void initCheckPhaseSpots(){
+
+		checkPhaseSpots = new Positionable[5];
+
+		int nearestEquator, furtherEquator;
+		int nearestBorder, furtherBorder;
+		
+		if (currShip.y < LAST_Y_CASE/2) {
+			nearestEquator = LAST_Y_CASE/4;
+			furtherEquator = 3*LAST_Y_CASE/4;
+		} else {
+			furtherEquator = LAST_Y_CASE/4;
+			nearestEquator = 3*LAST_Y_CASE/4;
+		}
+		
+		if (currShip.x < LAST_X_CASE - currShip.x) {
+			furtherBorder = LAST_X_CASE - VISION;
+			nearestBorder = VISION;
+		} else {
+			nearestBorder = LAST_X_CASE - VISION;
+			furtherBorder = VISION;
+		}
+
+		//On fait un tour complet en essayant de faire les lignes droites les plus
+		//grandes possibles (gain de temps)
+		checkPhaseSpots[0] = new Positionable(furtherBorder, nearestEquator);
+		checkPhaseSpots[1] = new Positionable(furtherBorder, furtherEquator);
+		checkPhaseSpots[2] = new Positionable(nearestBorder, furtherEquator);
+		checkPhaseSpots[3] = new Positionable(nearestBorder, nearestEquator);
+		checkPhaseSpots[4] = new Positionable(currShip.x, currShip.y);
+
+		checkPhaseStep = 0;
+	}
+
 	static public void checkPhase(){
 
 		if (checkPhaseStep == -1) {
-			destX = currShip.x < LAST_X_CASE - currShip.x ?
-					LAST_X_CASE - VISION
-					: VISION;
-	
-			if (destX == VISION) {
-				directionCheck = R_TO_L;
-			} else {
-				directionCheck = L_TO_R;
-			}
-			
-			destY = currShip.y < LAST_Y_CASE/2 ?
-					LAST_Y_CASE/4
-					: 3*LAST_Y_CASE/4;
-			
-			checkPhaseStep = destX == VISION ? 0 : 1;
-			checkPhaseStep = destY == LAST_Y_CASE/2 ?
-					checkPhaseStep
-					: checkPhaseStep + 2;
-			
-			toX = destX;
-			toY = destY;
+			initCheckPhaseSpots();
 		}
 
-		currAction = cmd_move(toX, toY);
-
-		prepareNextPhase();
-
-
+		if (checkPhaseStep < 5) {
+			Positionable currDest = checkPhaseSpots[checkPhaseStep];
+			if (currShip.x == currDest.x && currShip.y == currDest.y) {
+				checkPhaseStep++;
+			}
+		}
 		
-
+		if (checkPhaseStep < 5) {
+			currAction = cmd_move(checkPhaseSpots[checkPhaseStep].x,
+					checkPhaseSpots[checkPhaseStep].y);			
+		} else {
+			currAction = cmd_slower();
+		}
 	}
 
 	static public void prepareNextPhase(){
