@@ -11,7 +11,35 @@ import java.math.*;
 /* *****************************
  * CLASS
  * *****************************/
+class ComparatorBlocMap implements Comparator<List<Barrel>> {
 
+	Ship target;
+	
+	public ComparatorBlocMap(Ship tarShip) {
+		this.target = tarShip;
+	}
+
+	@Override
+	public int compare(List<Barrel> o1, List<Barrel> o2) {
+		int size1 = o1.size();
+		int size2 = o2.size();
+
+		if (size1 != size2) {
+			return size2 - size1;			
+		} else {
+			if (size1 == 0) {
+				return 0;
+			} else {
+				double distance1 = Positionable.computeShipDistance(o1.get(0),
+						target);
+				double distance2 = Positionable.computeShipDistance(o2.get(0),
+						target);
+				return  distance1 < distance2 ? -1 : 0;
+			}
+		}
+	}
+	
+}
 class Positionable {
 	int x;
 	int y;
@@ -20,59 +48,69 @@ class Positionable {
 		this.x = x;
 		this.y = y;
 	}
+
+	static public double computeShipDistance(Positionable start, Positionable dest){
+		//http://stackoverflow.com/questions/14491444/calculating-distance-on-a-hexagon-grid
+		double dx = Math.abs(start.x-dest.x);
+		double dy = Math.abs(start.y-dest.y);
+
+		if (start.x == dest.x){
+			return dy;
+		} else if (start.y == dest.y) {
+			return dx;
+		} else {
+			if(start.y < dest.y)
+				return dx + dy - (int)(Math.ceil(dx / 2.0));
+			else
+				return dx + dy - (int)(Math.floor(dx / 2.0));
+		}
+	}
 }
 
 class Barrel extends Positionable {
+	int id;
 	int quantity;
 	State state;
 	enum State{
 		TOOK,
 		PROBABLY_LOSE,
+		LOSE,
 		STILL_OK,
 	}
-	public Barrel (int x, int y, int quantity, State state){
+	public Barrel (int id, int x, int y, int quantity, State state){
 		super(x,y);
 		this.quantity = quantity;
 		this.state = state;
+		this.id = id;
 	}
-	public Barrel (int x, int y, int quantity) {
-		this(x, y, quantity, State.STILL_OK);
+
+	public Barrel (int id, int x, int y, int quantity) {
+		this(id, x, y, quantity, State.STILL_OK);
 	}
 }
 
 class Ship extends Positionable {
+	int id;
 	int orientation;
 	int speed; 
 	int rhumLvl;
+	boolean needRhum;
+	Positionable destination;
 	
-	
-	public Ship(int x, int y, int orientation, int speed, int rhumLvl) {
+	public Ship(int id, int x, int y, int orientation, int speed, int rhumLvl) {
 		super(x,y);
+		this.id = id;
 		this.orientation = orientation;
 		this.speed = speed;
 		this.rhumLvl = rhumLvl;
+		this.needRhum = false;
+		this.destination = null;
 	}
 
 	static public boolean isMyShip(int arg4) {
 		return arg4 == 1;
 	}
 }
-
-enum CheckStep {
-	TOP_LEFT(0),
-	BOT_LEFT(1),
-	BOT_RIGHT(2),
-	TOP_RIGHT(3);
-	
-	public int value;
-	CheckStep(int value){
-		this.value = value;
-	}
-	int getValue(){
-		return value;
-	}
-}
-
 
 class Player {
 	static final String ENTITY_SHIP = "SHIP";
@@ -85,66 +123,26 @@ class Player {
 	static final String CMD_MOVE = "MOVE";
 	static final String CMD_WAIT = "WAIT";
 	static final String CMD_SLOWER = "SLOWER";
-	static int VISION = 5;
+	static final int WARNING_RHUM_LVL = 85;
+	static final int VISION = 5;
 
 	static int MAX_NB_ROUND = 200;
 	
 	
-	//Check phase data
-	static int destY = -1;
-	static int destX = -1;
-	static int toX, toY;
-	static int nbVisitedSides = 0;
-	static boolean inCheckPhase = true;
-	static int checkPhaseStep = -1;
-	static Positionable checkPhaseSpots[];
-	
-	
 	//Global data 
-	static HashMap< Integer, Ship> myShips;
-	static HashMap< Integer, Ship> ennemyShips;
-	static List<HashMap< Integer, Barrel>> mappedBarrels;
+	static List<Ship> myShips;
+	static List<Ship> ennemyShips;
+	static List<List<Barrel>> mappedBarrels;
+	static Positionable blocsMapPositions[];
 
-	
 	//Action data
 	static Ship currShip;
 	static String currAction;
 
-	/* *****************************
-	 * Tool
-	 * *****************************/
-
 	
-	static private int indexMapBlocFromPos(int x, int y){
-		int index = 0;
-		index = x / (MAX_WIDTH/4);
-		index = y > (MAX_HEIGHT/2) ? index + 3 : index;
-		return index;
-	}
-
-	static public void initNewEntries(String entityType,
-			int entityId,
-			int x, int y,
-			int arg1, int arg2, int arg3, int arg4){
-		
-		if (0 == entityType.compareTo(ENTITY_BARREL)){
-			int indexBloc = indexMapBlocFromPos(x,y);
-			HashMap<Integer, Barrel> mapBloc;
-			mapBloc = mappedBarrels.get(indexBloc);
-			mapBloc.put(entityId, new Barrel(x, y, arg1));
-		
-		}
-		else if (0 == entityType.compareTo(ENTITY_SHIP)){
-			Ship newShip = new Ship(x,y, arg1, arg2, arg3);
-
-			if (Ship.isMyShip(arg4)){
-				myShips.put(entityId, newShip);
-			} else {
-				ennemyShips.put(entityId, newShip);
-			}
-		}
-	}
-
+	//*******************************
+	//************************* DEBUG
+	//*******************************
 	static void debugEntry(String entityType,
 			int entityId,
 			int x, int y,
@@ -155,6 +153,69 @@ class Player {
 				x, y,
 				arg1, arg2, arg3, arg4));
 	}
+	
+
+	static void printAllMappedBarrels(){
+		System.err.println("Barrel trouvés :");
+		for (List<Barrel> bloc : mappedBarrels) {
+			for (Barrel entry : bloc){
+				System.err.println("Barrel "+entry.id+" "+
+			entry.x +
+			" " + entry.y + "State : " +entry.state);
+			}
+			System.err.println("-----------------------");
+		}
+	}
+	
+	static void printAllMappedBarrels(List<List<Barrel>> barrels){
+		System.err.println("Barrel trouvés :");
+		for (List<Barrel> bloc : barrels) {
+			for (Barrel entry : bloc){
+				System.err.println("Barrel "+entry.id+" "+
+			entry.x +
+			" " + entry.y + "State : " +entry.state);
+			}
+			System.err.println("-----------------------");
+		}
+	}
+
+	//*******************************
+	//************************* TOOL
+	//*******************************
+	
+	static private int indexMapBlocFromPos(int x, int y){
+		int index = 0;
+		index = x / (MAX_WIDTH/4);
+		index = y > (MAX_HEIGHT/2) ? index + 3 : index;
+		return index;
+	}
+
+	/*
+	 * Ajoute les barrels et bateaux dans notre cartpographie
+	 */
+	static public void initNewEntries(String entityType,
+			int entityId,
+			int x, int y,
+			int arg1, int arg2, int arg3, int arg4){
+		
+		if (0 == entityType.compareTo(ENTITY_BARREL)){
+			int indexBloc = indexMapBlocFromPos(x,y);
+			List<Barrel> mapBloc;
+			mapBloc = mappedBarrels.get(indexBloc);
+
+			Barrel newBarrel = new Barrel(entityId, x, y, arg1);
+			mapBloc.add(newBarrel);
+		}
+		else if (0 == entityType.compareTo(ENTITY_SHIP)){
+			Ship newShip = new Ship(entityId, x,y, arg1, arg2, arg3);
+			if (Ship.isMyShip(arg4)){
+				myShips.add(newShip);
+			} else {
+				ennemyShips.add(newShip);
+			}
+		}
+	}
+
 	
 	public static String cmd_move(int x, int y){
 		return CMD_MOVE +" "+ x + " " + y;
@@ -167,103 +228,64 @@ class Player {
 	}
 
 
-	static void printAllMappedBarrels(){
-		System.err.println("Barrel trouvés :");
-		for (HashMap< Integer, Barrel> bloc : mappedBarrels) {
-			for (Map.Entry<Integer, Barrel> entry : bloc.entrySet()){
-				System.err.println("Barrel "+entry.getKey()+" "+ entry.getValue().x + " " + entry.getValue().y);
-			}
-			System.err.println("-----------------------");
-		}
-	}
-
 	public static void computeShipAction(int idShip, int round){
 		currShip = myShips.get(idShip);
 
-		if(inCheckPhase)
-			checkPhase();
-	}
-	
-
-	//********************************
-	//******************** CHECK PHASE
-	//********************************
-
-	static public void initCheckPhaseSpots(){
-
-		checkPhaseSpots = new Positionable[5];
-
-		int nearestEquator, furtherEquator;
-		int nearestBorder, furtherBorder;
-		
-		if (currShip.y < LAST_Y_CASE/2) {
-			nearestEquator = LAST_Y_CASE/4;
-			furtherEquator = 3*LAST_Y_CASE/4;
+		if (currShip.destination == null){
+			currAction = cmd_wait();
 		} else {
-			furtherEquator = LAST_Y_CASE/4;
-			nearestEquator = 3*LAST_Y_CASE/4;
+			currAction = cmd_move(currShip.destination.x, currShip.destination.y);			
 		}
-		
-		if (currShip.x < LAST_X_CASE - currShip.x) {
-			furtherBorder = LAST_X_CASE - VISION;
-			nearestBorder = VISION;
-		} else {
-			nearestBorder = LAST_X_CASE - VISION;
-			furtherBorder = VISION;
-		}
-
-		//On fait un tour complet en essayant de faire les lignes droites les plus
-		//grandes possibles (gain de temps)
-		checkPhaseSpots[0] = new Positionable(furtherBorder, nearestEquator);
-		checkPhaseSpots[1] = new Positionable(furtherBorder, furtherEquator);
-		checkPhaseSpots[2] = new Positionable(nearestBorder, furtherEquator);
-		checkPhaseSpots[3] = new Positionable(nearestBorder, nearestEquator);
-		checkPhaseSpots[4] = new Positionable(currShip.x, currShip.y);
-
-		checkPhaseStep = 0;
 	}
 
-	static public void checkPhase(){
 
-		if (checkPhaseStep == -1) {
-			initCheckPhaseSpots();
-		}
 
-		if (checkPhaseStep < 5) {
-			Positionable currDest = checkPhaseSpots[checkPhaseStep];
-			if (currShip.x == currDest.x && currShip.y == currDest.y) {
-				checkPhaseStep++;
+	public static Positionable nearestBarrel(Ship target, List<Barrel> currBlocMap){
+		if(currBlocMap.isEmpty()){
+			return null;
+		} else {
+			int size = currBlocMap.size();
+			Positionable result = currBlocMap.get(0);
+			double currDistance = Positionable.computeShipDistance(target, currBlocMap.get(0));
+			for (int i = 1; i < size; i++) {
+				double tmpDistance = Positionable.computeShipDistance(target, currBlocMap.get(i));
+				if (tmpDistance < currDistance) {
+					currDistance = tmpDistance;
+					result = currBlocMap.get(i);
+				}
 			}
-		}
-		
-		if (checkPhaseStep < 5) {
-			currAction = cmd_move(checkPhaseSpots[checkPhaseStep].x,
-					checkPhaseSpots[checkPhaseStep].y);			
-		} else {
-			currAction = cmd_slower();
+			return result;
 		}
 	}
 
-	static public void prepareNextPhase(){
+	/**
+	 * Methode pour déterminer dans qu'elle zone doit aller un bateau 
+	 */
+	public static void updateShipDestination() {
+		//Aller dans la zone où il y a le plus de barrels
+		List<List<Barrel>> sortedMappedBarrels = new ArrayList<List<Barrel>>(8);
+		sortedMappedBarrels.addAll(mappedBarrels);
 
-		if(destX == currShip.x){
-			destY = currShip.y > LAST_Y_CASE/2 ?
-					LAST_Y_CASE/4
-					: 3*LAST_Y_CASE/4;
-			
-			toY = destY;
-		} else if (destY == currShip.y) {
-			destX = currShip.x < LAST_X_CASE - currShip.x ?
-					LAST_X_CASE - VISION
-					: VISION;
-			toX = destX;
-		}
+		//Le bateu ayant besoin du plus de rhum sera prioritaire à un autre.
+		List<Ship> sortedShips = new ArrayList<Ship>(3);
+		sortedShips.addAll(myShips);
+		Collections.sort(sortedShips, new Comparator<Ship>() {
+
+			@Override
+			public int compare(Ship o1, Ship o2) {
+				return o1.rhumLvl - o2.rhumLvl;
+			}
+		});
 		
-		if (nbVisitedSides == 4) {
-			inCheckPhase = false;
+		//Initialiser le barrels
+		for (int i = 0; i < sortedShips.size(); i++) {
+			Ship currShip = sortedShips.get(i);
+			//Calculer le plus proche
+			Collections.sort(sortedMappedBarrels, new ComparatorBlocMap(currShip));
+			List<Barrel> currBlocMap = sortedMappedBarrels.get(0);
+			currShip.destination = nearestBarrel(currShip, currBlocMap);
 		}
 	}
-	
 	
 	/* *****************************
 	 * MAIN
@@ -271,22 +293,23 @@ class Player {
 	public static void main(String args[]) {
 		Scanner in = new Scanner(System.in);
 
-		myShips = new HashMap<Integer, Ship>();
-		ennemyShips = new HashMap<Integer, Ship>();
-
-		//Grille divisé en 8 pour simplifier la cartographie
-		mappedBarrels = new ArrayList<HashMap<Integer,Barrel>>(NB_BLOCS);
-		for(int i = 0; i < NB_BLOCS; i++){
-			mappedBarrels.add(new HashMap<Integer, Barrel>());
-		}
-		
 		int round = 0;
+		
 		// game loop
 		while (true) {
 			int myShipCount = in.nextInt(); // the number of remaining ships
 			int entityCount = in.nextInt(); // the number of entities (e.g. ships, mines or cannonballs)
 
-			
+			//Initialisation des variables globales
+			myShips = new ArrayList<Ship>(3);
+			ennemyShips = new ArrayList<Ship>(3);
+
+			//Grille divisé en 8 pour simplifier la cartographie
+			mappedBarrels = new ArrayList<List<Barrel>>(NB_BLOCS);
+			for(int i = 0; i < NB_BLOCS; i++){
+				mappedBarrels.add(new ArrayList<Barrel>());
+			}
+
 			for (int i = 0; i < entityCount; i++) {
 				int entityId = in.nextInt();
 				String entityType = in.next();
@@ -296,10 +319,15 @@ class Player {
 				int arg2 = in.nextInt();
 				int arg3 = in.nextInt();
 				int arg4 = in.nextInt();
+
 				//debugEntry(entityType, entityId, x, y, arg1, arg2, arg3, arg4);
 				initNewEntries(entityType, entityId, x, y, arg1, arg2, arg3, arg4);
 
 			}
+
+			//On update la destination de chaque bateau
+			updateShipDestination();
+
 			for (int i = 0; i < myShipCount; i++) {
 				// Write an action using System.out.println()
 				// To debug: System.err.println("Debug messages...");
