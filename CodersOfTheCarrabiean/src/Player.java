@@ -1,5 +1,4 @@
 import java.util.*;
-
 import java.io.*;
 import java.math.*;
 
@@ -65,6 +64,18 @@ class Positionable {
 				return dx + dy - (int)(Math.floor(dx / 2.0));
 		}
 	}
+
+	static public boolean isBetween(Positionable start,
+			Positionable dest,
+			Positionable middle) {
+
+		double distStartToDest = Positionable.computeShipDistance(start, dest);
+		double distMiddleToDest = Positionable.computeShipDistance(middle, dest);
+		double distMiddleToStart = Positionable.computeShipDistance(start, middle);
+
+		return distMiddleToDest < distStartToDest
+				&& distMiddleToStart < distStartToDest;
+	}
 }
 
 class Barrel extends Positionable {
@@ -112,14 +123,25 @@ class Ship extends Positionable {
 	}
 }
 
+class Trap extends Positionable {
+
+	public Trap(int x, int y) {
+		super(x, y);
+	}
+	
+}
 class Player {
 	static final String ENTITY_SHIP = "SHIP";
 	static final String ENTITY_BARREL = "BARREL";
+	static final String ENTITY_CANONBALL = "CANNONBALL";
+	static final String ENTITY_MINE = "MINE";
 	static final int MAX_WIDTH = 23;
 	static final int MAX_HEIGHT = 21;
-	static final int LAST_X_CASE = MAX_WIDTH;
-	static final int LAST_Y_CASE = MAX_HEIGHT;
+	static final int LAST_X_CASE = MAX_WIDTH - 1;
+	static final int LAST_Y_CASE = MAX_HEIGHT - 1;
 	static final int NB_BLOCS = 8;
+	static final String CMD_FIRE = "FIRE";
+	static final String CMD_MINE = "MINE";
 	static final String CMD_MOVE = "MOVE";
 	static final String CMD_WAIT = "WAIT";
 	static final String CMD_SLOWER = "SLOWER";
@@ -134,11 +156,12 @@ class Player {
 	static List<Ship> ennemyShips;
 	static List<List<Barrel>> mappedBarrels;
 	static Positionable blocsMapPositions[];
+	static List<Trap> mappedTraps;
+	static HashMap<Integer, Integer> timeOutFire;
 
 	//Action data
 	static Ship currShip;
 	static String currAction;
-
 	
 	//*******************************
 	//************************* DEBUG
@@ -159,9 +182,9 @@ class Player {
 		System.err.println("Barrel trouvés :");
 		for (List<Barrel> bloc : mappedBarrels) {
 			for (Barrel entry : bloc){
-				System.err.println("Barrel "+entry.id+" "+
+				System.err.println("Barrel "+entry.id+" : "+
 			entry.x +
-			" " + entry.y + "State : " +entry.state);
+			"," + entry.y);
 			}
 			System.err.println("-----------------------");
 		}
@@ -171,9 +194,9 @@ class Player {
 		System.err.println("Barrel trouvés :");
 		for (List<Barrel> bloc : barrels) {
 			for (Barrel entry : bloc){
-				System.err.println("Barrel "+entry.id+" "+
-			entry.x +
-			" " + entry.y + "State : " +entry.state);
+				System.err.println("Barrel "+entry.id+" : "+
+						entry.x +
+						"," + entry.y);
 			}
 			System.err.println("-----------------------");
 		}
@@ -210,9 +233,16 @@ class Player {
 			Ship newShip = new Ship(entityId, x,y, arg1, arg2, arg3);
 			if (Ship.isMyShip(arg4)){
 				myShips.add(newShip);
+				if(false == timeOutFire.containsKey(entityId)){
+					timeOutFire.put(entityId, 4);
+				}
 			} else {
 				ennemyShips.add(newShip);
 			}
+		}
+		else if (0 == entityType.compareTo(ENTITY_MINE)){
+			Trap newTrap = new Trap(x, y);
+			mappedTraps.add(newTrap);
 		}
 	}
 
@@ -220,21 +250,193 @@ class Player {
 	public static String cmd_move(int x, int y){
 		return CMD_MOVE +" "+ x + " " + y;
 	}
+	public static String cmd_fire(int x, int y){
+		return CMD_FIRE +" "+ x + " " + y;
+	}
 	public static String cmd_slower(){
 		return CMD_SLOWER;
 	}
 	public static String cmd_wait(){
 		return CMD_WAIT;
 	}
+	public static String cmd_mine(){
+		return CMD_MINE;
+	}
 
 
+	public static boolean isGoodOrientation (Ship ship) {
+		Positionable projectedPosition = projectMove(ship,
+				ship.orientation, 1);
+
+		if (projectedPosition.x == ship.x 
+				&& projectedPosition.y == ship.y) {
+			return false;
+		}
+
+		double dist1 = Positionable.computeShipDistance(ship,
+				ship.destination);
+		double dist2 = Positionable.computeShipDistance(projectedPosition,
+				ship.destination);
+		
+		return dist2 <= dist1;
+	}
+	public static Positionable projectMove(Positionable ship,
+			int orientation,
+			int nbStep){
+		int x = ship.x;
+		int y = ship.y;
+		int xResult = x;
+		int yResult = y;
+
+		switch (orientation) {
+		case 0:
+			xResult += nbStep;
+			break;
+		case 1:
+			for (int i = 0; i < nbStep; i++) {
+				xResult += (xResult % 2 == 0) ? 0 : 1;				
+			}
+			yResult -= nbStep;
+			break;
+		case 2:
+			for (int i = 0; i < nbStep; i++) {
+				xResult -= (xResult % 2 == 0) ? 1 : 0;
+			}
+
+			yResult -= nbStep;
+			break;
+		case 3:
+			xResult -= nbStep;
+			break;
+		case 4:
+			for (int i = 0; i < nbStep; i++) {
+				xResult -= (xResult % 2 == 0) ? 1 : 0;
+			}
+
+			yResult += nbStep;
+			break;
+		case 5:
+			for (int i = 0; i < nbStep; i++) {
+				xResult += (xResult % 2 == 0) ? 0 : 1;
+			}
+
+			yResult += nbStep;
+			break;
+		default:
+			xResult = x;
+			yResult = y;
+			break;
+		}
+		
+		if (xResult < 0)
+			xResult = 0;
+		else if (xResult >= LAST_X_CASE)
+			xResult = LAST_X_CASE;
+		
+		if (yResult < 0)
+			yResult = 0;
+		else if (yResult >= LAST_Y_CASE)
+			yResult = LAST_Y_CASE;
+
+		return new Positionable(xResult, yResult);
+		
+	}
+	
+	public static boolean isSafePlace(Positionable pos) {
+		boolean isOk = true;
+		for (Trap t : mappedTraps) {
+			if (t.x == pos.x && t.y == pos.y) {
+				isOk = false;
+				break;
+			}
+		}
+		return isOk;
+	}
+	public static Positionable subMove(Ship ship) {
+		Positionable destination = ship.destination;
+		Positionable result = destination;
+
+		if(mappedTraps.size() == 0){
+			return result;
+		} else {
+			//Check si c'est dans notre direction
+			//On projette notre bateau de deux cases et on voit si on tombe sur une mine
+			boolean isOk = false;
+			if(isGoodOrientation(ship)){
+				Positionable proj2 = projectMove(ship, ship.orientation, 1);
+				isOk = isSafePlace(proj2);
+		
+				if(isOk) {
+					Positionable proj3 = projectMove(proj2, ship.orientation, 2);
+					return isSafePlace(proj3) ? proj3 : proj2;
+				}				
+			}
+
+			int adjustment = 1;
+			Positionable newProj = null;
+			while (adjustment < 3 && false == isOk) {
+				int orientation = ship.orientation;
+
+				newProj = projectMove(ship,
+						(orientation + adjustment) % 6,
+						1);
+				isOk = isSafePlace(newProj);
+				if(isOk) {
+					Positionable proj3 = projectMove(newProj, ship.orientation, 2);
+					return isSafePlace(proj3) ? proj3 : newProj;
+				}
+
+				newProj = projectMove(ship,
+						(orientation - adjustment + 6) % 6,
+						1);
+				isOk = isSafePlace(newProj);				
+				if(isOk) {
+					Positionable proj3 = projectMove(newProj, ship.orientation, 2);
+					return isSafePlace(proj3) ? proj3 : newProj;
+				}
+
+				adjustment++;
+			}
+			
+			return newProj;
+			
+		}
+		
+	}
 	public static void computeShipAction(int idShip, int round){
 		currShip = myShips.get(idShip);
+		timeOutFire.put(currShip.id, timeOutFire.get(currShip.id) - 1);
 
 		if (currShip.destination == null){
-			currAction = cmd_wait();
+			currShip.destination = new Positionable((int)(Math.random() * LAST_X_CASE), (int)(Math.random() * LAST_Y_CASE));
+		}
+		System.err.println("ID "+currShip.id+" Destination : "+ currShip.destination.x + ","+currShip.destination.y);
+		boolean isNearEnnemy = false;
+		Ship posRealEnnemy = null;
+		for (Ship ennemy : ennemyShips) {
+			if (Positionable.computeShipDistance(currShip, ennemy) < 4) {
+				posRealEnnemy = ennemy;
+				break;
+			}
+		}
+
+		if (posRealEnnemy != null && timeOutFire.get(currShip.id)<= 0){
+			Positionable target = projectMove(posRealEnnemy, posRealEnnemy.orientation, 2);
+			currAction = cmd_fire(target.x, target.y);
+			timeOutFire.put(currShip.id, 4);
 		} else {
-			currAction = cmd_move(currShip.destination.x, currShip.destination.y);			
+			//Fragmenter le déplacement
+			Positionable subDest = subMove(currShip);
+			
+			if(subDest == null
+					|| (subDest.x == currShip.x && subDest.y == currShip.y)) {
+				currAction = cmd_move(currShip.destination.x, currShip.destination.y);				
+			} else {
+				currAction = cmd_move(subDest.x, subDest.y);
+			}
+
+
+			
 		}
 	}
 
@@ -270,7 +472,6 @@ class Player {
 		List<Ship> sortedShips = new ArrayList<Ship>(3);
 		sortedShips.addAll(myShips);
 		Collections.sort(sortedShips, new Comparator<Ship>() {
-
 			@Override
 			public int compare(Ship o1, Ship o2) {
 				return o1.rhumLvl - o2.rhumLvl;
@@ -282,6 +483,7 @@ class Player {
 			Ship currShip = sortedShips.get(i);
 			//Calculer le plus proche
 			Collections.sort(sortedMappedBarrels, new ComparatorBlocMap(currShip));
+			printAllMappedBarrels(sortedMappedBarrels);
 			List<Barrel> currBlocMap = sortedMappedBarrels.get(0);
 			currShip.destination = nearestBarrel(currShip, currBlocMap);
 		}
@@ -294,7 +496,8 @@ class Player {
 		Scanner in = new Scanner(System.in);
 
 		int round = 0;
-		
+		timeOutFire = new HashMap<Integer, Integer>();
+
 		// game loop
 		while (true) {
 			int myShipCount = in.nextInt(); // the number of remaining ships
@@ -309,6 +512,8 @@ class Player {
 			for(int i = 0; i < NB_BLOCS; i++){
 				mappedBarrels.add(new ArrayList<Barrel>());
 			}
+
+			mappedTraps = new ArrayList<Trap>();
 
 			for (int i = 0; i < entityCount; i++) {
 				int entityId = in.nextInt();
