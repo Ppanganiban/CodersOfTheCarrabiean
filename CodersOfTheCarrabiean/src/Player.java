@@ -50,19 +50,10 @@ class Positionable {
 
 	static public double computeShipDistance(Positionable start, Positionable dest){
 		//http://stackoverflow.com/questions/14491444/calculating-distance-on-a-hexagon-grid
-		double dx = Math.abs(start.x-dest.x);
-		double dy = Math.abs(start.y-dest.y);
-
-		if (start.x == dest.x){
-			return dy;
-		} else if (start.y == dest.y) {
-			return dx;
-		} else {
-			if(start.y < dest.y)
-				return dx + dy - (int)(Math.ceil(dx / 2.0));
-			else
-				return dx + dy - (int)(Math.floor(dx / 2.0));
-		}
+		double dx = start.x-dest.x;
+		double dy = start.y-dest.y;
+		double dz = dy - dx;
+		return Math.max(Math.max(Math.abs(dx), Math.abs(dy)), dz);
 	}
 
 	static public boolean isBetween(Positionable start,
@@ -76,6 +67,14 @@ class Positionable {
 		return distMiddleToDest < distStartToDest
 				&& distMiddleToStart < distStartToDest;
 	}
+
+	@Override
+	public String toString() {
+		// TODO Auto-generated method stub
+		return getClass().getName() + " ("+x+","+y+")";
+	}
+	
+	
 }
 
 class Barrel extends Positionable {
@@ -202,6 +201,14 @@ class Player {
 		}
 	}
 
+	static void printMappedTrap(){
+		System.err.println("Traps trouvés :");
+		for (Trap trap : mappedTraps) {		
+				System.err.println("Trap : " + trap.x + "," + trap.y);
+			System.err.println("-----------------------");
+		}
+	}
+
 	//*******************************
 	//************************* TOOL
 	//*******************************
@@ -275,9 +282,10 @@ class Player {
 
 		double dist1 = Positionable.computeShipDistance(ship,
 				ship.destination);
+		System.err.println("Distance "+ship.toString()+" to destination : " + dist1);
 		double dist2 = Positionable.computeShipDistance(projectedPosition,
 				ship.destination);
-		
+		System.err.println("Distance "+projectedPosition.toString()+" to destination : " + dist2);		
 		return dist2 <= dist1;
 	}
 	public static Positionable projectMove(Positionable ship,
@@ -372,32 +380,27 @@ class Player {
 				}				
 			}
 
-			int adjustment = 1;
-			Positionable newProj = null;
-			while (adjustment < 3 && false == isOk) {
-				int orientation = ship.orientation;
 
-				newProj = projectMove(ship,
-						(orientation + adjustment) % 6,
-						1);
-				isOk = isSafePlace(newProj);
-				if(isOk) {
-					Positionable proj3 = projectMove(newProj, ship.orientation, 2);
-					return isSafePlace(proj3) ? proj3 : newProj;
-				}
+			Positionable newProj = null;			
+			int orientation = ship.orientation;
 
-				newProj = projectMove(ship,
-						(orientation - adjustment + 6) % 6,
-						1);
-				isOk = isSafePlace(newProj);				
-				if(isOk) {
-					Positionable proj3 = projectMove(newProj, ship.orientation, 2);
-					return isSafePlace(proj3) ? proj3 : newProj;
-				}
-
-				adjustment++;
+			newProj = projectMove(ship,
+					(orientation + 1) % 6,
+					1);
+			isOk = isSafePlace(newProj);
+			if(isOk) {
+				Positionable proj3 = projectMove(newProj, ship.orientation, 2);
+				return isSafePlace(proj3) ? proj3 : newProj;
 			}
-			
+
+			newProj = projectMove(ship,
+					(orientation - 1 + 6) % 6,
+					1);
+			isOk = isSafePlace(newProj);				
+			if(isOk) {
+				Positionable proj3 = projectMove(newProj, ship.orientation, 2);
+				return isSafePlace(proj3) ? proj3 : newProj;
+			}
 			return newProj;
 			
 		}
@@ -483,7 +486,7 @@ class Player {
 			Ship currShip = sortedShips.get(i);
 			//Calculer le plus proche
 			Collections.sort(sortedMappedBarrels, new ComparatorBlocMap(currShip));
-			printAllMappedBarrels(sortedMappedBarrels);
+			//printAllMappedBarrels(sortedMappedBarrels);
 			List<Barrel> currBlocMap = sortedMappedBarrels.get(0);
 			currShip.destination = nearestBarrel(currShip, currBlocMap);
 		}
